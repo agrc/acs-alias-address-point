@@ -1,9 +1,10 @@
 '''
-Created on Dec 23, 2014
+Add alias fields to address points
+from the cloest road with the same name.
 
-@author: kwalker
 '''
 import arcpy, os, time
+from time import strftime
 
 class Fields (object):
     
@@ -47,49 +48,63 @@ class Main(object):
         if arcpy.Exists(layerName):
             arcpy.Delete_management(layerName)
     
-    def start(self, roads, addrPoints, outputDirectory):       
-        tempGdb = "in_memory"#r"C:\Users\kwalker\Documents\Aptana Studio 3 Workspace\acs-alias-address-point\data\tmpGdb.gdb"
-        freqTable = os.path.join(r"C:\Users\kwalker\Documents\Aptana Studio 3 Workspace\acs-alias-address-point\data\tmpGdb.gdb", "roadFrequency")
-        #self.deletelayerIfExist(freqTable)
-        outputNear = os.path.join(r"C:\Users\kwalker\Documents\Aptana Studio 3 Workspace\acs-alias-address-point\data\tmpGdb.gdb", "finalNear")
-        #self.deletelayerIfExist(outputNear)
-        #Temp dev
+    def start(self, roadFeature, addrPointsFeature, outputDirectory):       
+        #Intermediate tables. They are stored in memory.
+        outputGdbName = "AcsAliasAdd_" + strftime("%Y%m%d%H%M%S") + ".gdb"
+        arcpy.CreateFileGDB_management(outputDirectory, outputGdbName)
+        outputGdb = os.path.join(outputDirectory, outputGdbName)
+        tempGdb = "in_memory"
+        roads = os.path.join(outputGdb, "tempRoads")
+        addrPoints = os.path.join(outputGdb, "AddrPoints_W_Alias")
+        freqTable = os.path.join(tempGdb, "roadFrequency")
+        outputNear = os.path.join(tempGdb, "finalNear")
         self.deletelayerIfExist(tempGdb)
-        arcpy.CreateFileGDB_management(r"C:\Users\kwalker\Documents\Aptana Studio 3 Workspace\acs-alias-address-point\data", "tmpGdb.gdb")
-        #Temp dev
         
+        #Copy features
+        acsRoadsWhere = """("ACSNAME" <> '' and "ACSNAME" is not null) or ( "ALIAS1" <> '' and "ALIAS1" is not null)"""
+        arcpy.MakeFeatureLayer_management (roadFeature, "acsRoads", acsRoadsWhere)
+        arcpy.CopyFeatures_management("acsRoads", roads)
+        
+        arcpy.CopyFeatures_management(addrPointsFeature, addrPoints)
+        
+        #Fied Objects for input layers. Schema changes can be handled in the Field classes
         roadFields = RoadFields(roads)
         roadLayer = "roads"
-        
         addrPointFields = AddressPointFields(addrPoints)
         addrPointLayer = "addressPoints"
-        
+        #Local accumulator variables
         intermediateNears = []
         nearBaseName = "near"
         
-        
-        freqTime = time.time()#timer
-        self.deletelayerIfExist("acsRoads")
-        acsRoadsWhere = """("ACSNAME" <> '' and "ACSNAME" is not null) or ( "ALIAS1" <> '' and "ALIAS1" is not null)"""
-        arcpy.MakeFeatureLayer_management (roads, "acsRoads", acsRoadsWhere)
-        
-        acsRoadsCount = arcpy.GetCount_management("acsRoads")
-        print int(acsRoadsCount.getOutput(0))
-        
         arcpy.Frequency_analysis("acsRoads", freqTable, roadFields.streetNameFields)
-        print "freq time: {}".format(time.time() - freqTime)#timer
-        #print
+        #Frequency table count for measuring progress
+        self.deletelayerIfExist("freqCount")
+        arcpy.MakeTableView_management(freqTable, "freqCount")
+        uniqueRoadNamesCount = arcpy.GetCount_management("freqCount")
+        uniqueRoadNamesCount = int(uniqueRoadNamesCount.getOutput(0))
+        print "Unique street names: {}".format(uniqueRoadNamesCount)
+        #Index feature classes to speed up selections
+        arcpy.AddIndex_management (addrPoints, 
+                                   "{};{};{}".format(addrPointFields.street, addrPointFields.prefixDir, addrPointFields.streetType), 
+                                   "addrPnt_IDX11", "NON_UNIQUE", "ASCENDING")
+        arcpy.AddIndex_management (roads, 
+                                  "{};{};{}".format(roadFields.street, roadFields.prefixDir, roadFields.streetType), 
+                                   "roads_IDX11", "NON_UNIQUE", "ASCENDING")
         
-        nearNameI  = 0;
+        nearNameI  = 1;
+        uniqueRoadNamesCount = float(uniqueRoadNamesCount)
         #Create point and road feature layers for selections
         self.deletelayerIfExist(addrPointLayer)
         arcpy.MakeFeatureLayer_management (addrPoints, addrPointLayer)
         self.deletelayerIfExist(roadLayer)
         arcpy.MakeFeatureLayer_management (roads, roadLayer)
-        loopTimeTotal = time.time()#timer
+        #Main loop. Selects points and roads that share a street name and does Near analysis
+        print  "Precent Complete: %0"
         with arcpy.da.SearchCursor(freqTable, roadFields.streetNameFields) as cursor:
             for row in cursor:
-                loopTime = time.time()#timer
+                #Progress update
+                if nearNameI % 32 == 0:
+                    print  "Precent Complete: %{0:0.2f}".format(nearNameI / uniqueRoadNamesCount * 100)
 
                 preDirVal = row[roadFields.getI(roadFields.prefixDir)]
                 streetVal = row[roadFields.getI(roadFields.street)]
@@ -98,45 +113,37 @@ class Main(object):
                 addrPointWhere = """"{}" = '{}' and "{}" = '{}' and "{}" = '{}'""".format(addrPointFields.prefixDir, preDirVal, 
                                                                                           addrPointFields.street, streetVal, 
                                                                                           addrPointFields.streetType, typeVal)
-                pointSelectTime = time.time()#timer
                 arcpy.SelectLayerByAttribute_management (addrPointLayer, "NEW_SELECTION", addrPointWhere)
-                print "Pont time: {}".format(time.time() - pointSelectTime)#timer
                 
                 roadWhere = """"{}" = '{}' and "{}" = '{}' and "{}" = '{}'""".format(roadFields.prefixDir, preDirVal, 
                                                                                           roadFields.street, streetVal, 
                                                                                           roadFields.streetType, typeVal)
-                roadSelectTime = time.time()#timer
                 arcpy.SelectLayerByAttribute_management (roadLayer, "NEW_SELECTION", roadWhere)
-                print "Road time: {}".format(time.time() - roadSelectTime)#timer
                 
-                nearTime = time.time()#timer
                 tempNearName = os.path.join(tempGdb, nearBaseName + str(nearNameI))
                 arcpy.GenerateNearTable_analysis(addrPointLayer, roadLayer, tempNearName)
-                #arcpy.Near_analysis(addrPointLayer, roadLayer)#, tempNearName)
                 intermediateNears.append(tempNearName)
-                print"Near time: {}".format(time.time() - nearTime)#timer
+                #Increment index to keep near tables unique
                 nearNameI += 1
-                print "Loop time: {}".format(time.time() - loopTime)#timer
-                print
-                
-        print "LpTot time: {}".format(time.time() - loopTimeTotal)#timer
-        mergeTime = time.time()#timer        
+
+                      
+        #Merge intermediat near tables
         arcpy.Merge_management(intermediateNears, outputNear)
-        print "Merge time: {}".format(time.time() - mergeTime)#timer
-        
-        joinTime = time.time()#timer
+        #Join Object ID of closest road to point and add alias fields
         arcpy.JoinField_management(addrPoints, addrPointFields.objectId, outputNear, "IN_FID", ["NEAR_FID", "NEAR_DIST"])
         arcpy.JoinField_management(addrPoints, "NEAR_FID", roads, roadFields.objectId, roadFields.aliasFields)
-        print "Join  time: {}".format(time.time() - joinTime)#timer
-        #arcpy.Delete_management(tempGdb)
+        print  "Precent Complete: %100"
+        self.deletelayerIfExist(roads)
+        arcpy.Delete_management(tempGdb)
         
         
 
 if __name__ == '__main__':
-    roads = r"C:\GIS\Work\Roads.gdb\SL_County_Roads"#os.path.join(os.path.dirname(__file__), os.pardir, r"data\SampleData.gdb\Roads_SGID")
-    addressPoints = r"C:\GIS\Work\AddressPoints.gdb\SL_County_AddrPoints"#os.path.join(os.path.dirname(__file__), os.pardir, r"data\SampleData.gdb\AddressPoints_SGID")
+    roads = os.path.join(os.path.dirname(__file__), os.pardir, r"data\SampleData.gdb\Roads_SGID")
+    addressPoints = os.path.join(os.path.dirname(__file__), os.pardir, r"data\SampleData.gdb\AddressPoints_SGID")
+    outputDirectory = os.path.join(os.path.dirname(__file__), os.pardir, "data")
     
     totalTime = time.time()#timer
     aliasAdder = Main();
-    aliasAdder.start(roads, addressPoints, "outputDirectory")
-    print "Total Time: {}".format(time.time() - totalTime)
+    aliasAdder.start(roads, addressPoints, outputDirectory)
+    print "Total Time: {0:.03f} seconds".format(time.time() - totalTime)

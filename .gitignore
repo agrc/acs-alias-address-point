@@ -52,3 +52,7 @@ docs/_build/
 
 # PyBuilder
 target/
+ToolModules/SampleRun.py
+.project
+.pydevproject
+data/outputs
