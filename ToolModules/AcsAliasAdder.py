@@ -150,9 +150,9 @@ class Main(object):
         
 
 if __name__ == '__main__':
-    roads = r"C:\KW_Working\Address_Point_Alias\temp\streets_small.shp"#os.path.join(os.path.dirname(__file__), os.pardir, r"data\SampleData.gdb\Roads_SGID")
-    addressPoints = r"C:\KW_Working\Address_Point_Alias\temp\points_small.shp"#os.path.join(os.path.dirname(__file__), os.pardir, r"data\SampleData.gdb\AddressPoints_SGID")
-    outputDirectory = r"C:\KW_Working\TEMP\acsTemp\minorTest"#s.path.join(os.path.dirname(__file__), os.pardir, "data")
+    roads = r"path to roads here"#Path to road data
+    addressPoints = r"path to address points here"#Path to address point data
+    outputDirectory = r"output directory here"#Output working directory
     
     totalTime = time.time()#timer
     aliasAdder = Main();
