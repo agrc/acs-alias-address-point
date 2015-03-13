@@ -56,3 +56,4 @@ ToolModules/SampleRun.py
 .project
 .pydevproject
 data/outputs
+data
